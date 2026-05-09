@@ -2,13 +2,12 @@
   "name": "pi-goal",
   "version": "0.1.0",
   "description": "A Codex-style persistent /goal workflow for pi.",
-  "type": "module",
   "keywords": [
-    "pi-package",
-    "pi-extension",
-    "goal",
+    "agent",
     "codex",
-    "agent"
+    "goal",
+    "pi-extension",
+    "pi-package"
   ],
   "license": "MIT",
   "files": [
@@ -21,17 +20,16 @@
     "tsconfig.json",
     "test"
   ],
-  "pi": {
-    "extensions": [
-      "./index.ts"
-    ]
-  },
+  "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "smoke:pi": "pi -e . --list-models",
     "check": "npm test && npm run smoke:pi",
     "pack:dry": "npm pack --dry-run",
     "validate": "npm run check && npm run pack:dry"
+  },
+  "dependencies": {
+    "pi-code-previews": "^0.1.23"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -42,7 +40,9 @@
   "engines": {
     "node": ">=22.5"
   },
-  "dependencies": {
-    "pi-code-previews": "^0.1.21"
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
   }
 }
