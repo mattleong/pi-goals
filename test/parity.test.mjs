@@ -11,6 +11,10 @@ test("model tool schema and output stay close to Codex", () => {
 	assert.match(source, /name: "get_goal"/);
 	assert.match(source, /name: "create_goal"/);
 	assert.match(source, /name: "update_goal"/);
+	assert.match(source, /registerMessageRenderer<GoalToolRenderDetails>/);
+	assert.match(source, /case "get_goal"/);
+	assert.match(source, /case "create_goal"/);
+	assert.match(source, /case "update_goal"/);
 	assert.match(source, /token_budget: Type\.Optional\(Type\.Integer/);
 	assert.doesNotMatch(source, /max_autonomous_turns/);
 	assert.match(coreSource, /remainingTokens/);
