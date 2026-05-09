@@ -35,12 +35,11 @@ pi install npm:pi-goal
 ## Usage
 
 ```text
-/goal <objective> [--budget N]
+/goal <objective>
 /goal status
 /goal pause
 /goal resume
 /goal clear
-/goal budget <tokens|none>
 /goal advanced
 ```
 
@@ -48,7 +47,7 @@ Examples:
 
 ```text
 /goal Implement the feature described in docs/spec.md and keep going until tests pass
-/goal Reduce flaky auth tests --budget 200000
+/goal Reduce flaky auth tests while keeping the existing auth API stable
 /goal pause
 /goal resume
 /goal clear
@@ -64,6 +63,20 @@ The extension registers three model-callable tools:
 
 The tool schemas and JSON result use Codex-compatible camelCase fields where pi can provide them: `goal`, `remainingTokens`, and `completionBudgetReport`. Goal objects include `threadId`, `objective`, `status`, `tokenBudget`, `tokensUsed`, `timeUsedSeconds`, `createdAt`, and `updatedAt`.
 
+## Budgets
+
+The normal slash-command surface is Codex-like: `/goal <objective>` treats the entire argument as objective text. It does not parse budget flags. For example, `/goal Task --budget 123` stores the literal objective `Task --budget 123`.
+
+Token budgets can still be set through pi-native advanced controls:
+
+```text
+/goal budget <tokens|none>
+```
+
+The model-facing `create_goal` tool also supports `token_budget` when a budget is explicitly requested. When counted goal tokens reach the token budget, pi-goal marks the goal `budget_limited`, stops automatic continuation, and sends a hidden wrap-up prompt.
+
+`/goal max-turns <n|none>` is separate: it is an optional pi-only autonomous-turn guard, not a token budget and not part of Codex's normal `/goal <objective>` parsing.
+
 ## Behavior
 
 - Uses an authoritative local SQLite database (`pi-goal.sqlite` in pi's session directory) with Codex's `0029_thread_goals.sql` shape, plus separate pi metadata/runtime tables and pi session custom-entry checkpoints under `pi-goal` for branch/export/recovery behavior.
@@ -73,12 +86,12 @@ The tool schemas and JSON result use Codex-compatible camelCase fields where pi 
 - Debounces continuation dispatch and only consumes a pi auto-turn guard count once the continuation is actually sent.
 - Persists continuation lock state so reload/resume is less likely to double-queue a continuation.
 - Automatically resumes active goals on session start/resume and shows a Codex-like `Resume goal` / `Leave paused` selector for paused goals.
-- Reusing the same non-terminal objective updates status/budgets while preserving usage; a different objective shows a Codex-like `Replace current goal` / `Cancel` selector before replacement.
+- Setting a goal while any goal already exists shows a Codex-like `Replace current goal` / `Cancel` selector; if the confirmed objective is the same non-terminal goal, usage is preserved by the persistence layer.
 - Checkpoints accounting on session switch, fork, shutdown, compaction, tree navigation, tool results, assistant messages, and turn end.
 - Pauses active goals after aborted turns.
 - Sends a hidden budget-limit wrap-up prompt when a budget is reached.
 - Tracks approximate turn count, elapsed time, and token usage using non-cached input plus output tokens when available, with runtime baselines to avoid double-counting across assistant-message and turn-end accounting.
-- Detects continuation progress through tool results, assistant messages, and session-branch growth before suppressing automatic loops.
+- Suppresses repeated automatic continuation when a continuation turn makes no tool-observable autonomous progress.
 - Provides advanced `/goal history [n]`, `/goal debug`, `/goal export`, `/goal api`, `/goal branch-status`, and `/goal panel [on|off]` commands for auditing the persisted event log, event payloads, branch semantics, and a richer TUI panel.
 - Uses Codex's continuation and budget-limit prompt wording as closely as pi's extension API allows.
 - Enforces Codex's 4,000-character objective cap and budget validation wording.
@@ -90,6 +103,7 @@ These are intentionally hidden from normal `/goal help` output to keep the main 
 
 ```text
 /goal complete
+/goal budget <tokens|none>
 /goal max-turns <n|none>
 /goal history [n]
 /goal debug
@@ -99,6 +113,7 @@ These are intentionally hidden from normal `/goal help` output to keep the main 
 /goal panel [on|off]
 ```
 
+- `/goal budget <tokens|none>` updates the pi goal token budget without adding a non-Codex flag to normal `/goal <objective>` parsing.
 - `/goal export` prints a goal-updated event payload and tool response for debugging.
 - `/goal api <thread_goal_get|thread_goal_set|thread_goal_clear> [json]` is a local API-style shim for debugging and tests.
 - `/goal branch-status` explains the current session id/file/leaf and recent goal-affecting branch lifecycle events.
@@ -124,7 +139,7 @@ Closest matches:
 - `update_goal` can only complete a goal.
 - Codex-compatible model tool names, descriptions, validation wording, and camelCase result shape.
 - Hidden continuation and budget-limit prompts with Codex's completion-audit guidance.
-- Same-objective updates preserve usage instead of replacing the goal.
+- Replacement confirmation is shown when a goal already exists, and confirmed same-objective updates preserve usage instead of replacing the goal.
 - Active goals continue after session restore; paused goals can prompt to resume.
 - Interrupted/aborted turns pause the active goal.
 - Token-budget exhaustion is the only automatic `budgetLimited` path; pi's optional auto-turn guard pauses instead.
@@ -137,7 +152,7 @@ Known differences:
 - Token/time accounting is approximate and extension-level, not Codex core accounting.
 - Interrupt/resume behavior is approximated but not as deeply integrated as Codex.
 - Automatic continuation uses pi follow-up messages and persisted extension locks rather than Codex core scheduler locks.
-- pi-specific `/goal max-turns` and auto-turn counters are optional extension safety guards, not Codex fields.
+- pi-specific advanced `/goal budget`, `/goal max-turns`, and auto-turn counters are optional extension controls, not Codex CLI slash-command fields.
 - There is no app-server JSON-RPC goal API; `/goal export` only prints a Codex-like event payload for debugging.
 - Requires Node.js with `node:sqlite` (Node 22.5+).
 

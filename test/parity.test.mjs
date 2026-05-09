@@ -37,6 +37,11 @@ test("budget-limit prompt follows Codex token-budget behavior", () => {
 	assert.match(coreSource, /do not start new substantive work for this goal/);
 });
 
+test("objective validation follows Codex-style file guidance", () => {
+	assert.match(coreSource, /Goal objective is too long:/);
+	assert.match(coreSource, /Put longer instructions in a file and refer to that file in the goal/);
+});
+
 test("pi auto-turn guard is hidden by default and pauses instead of budget-limiting", () => {
 	assert.match(source, /const DEFAULT_MAX_AUTONOMOUS_TURNS = core\.readDefaultMaxAutonomousTurns\(\);/);
 	assert.match(coreSource, /if \(!raw \|\| \/\^\(none\|off\|false\|0\)\$\/i\.test\(raw\)\) return null;/);
@@ -46,6 +51,7 @@ test("pi auto-turn guard is hidden by default and pauses instead of budget-limit
 
 test("Codex-like selectors are documented and implemented", () => {
 	assert.match(source, /"Replace current goal", "Cancel"/);
+	assert.match(source, /if \(goal\) \{\n\s+const ok = await chooseReplaceGoal/);
 	assert.match(source, /"Resume goal", "Leave paused"/);
 	assert.match(readme, /Replace current goal` \/ `Cancel` selector/);
 	assert.match(readme, /Resume goal` \/ `Leave paused` selector/);
@@ -54,7 +60,15 @@ test("Codex-like selectors are documented and implemented", () => {
 test("advanced pi-only commands are hidden from normal help", () => {
 	assert.match(source, /if \(args === "advanced"\)/);
 	assert.match(source, /Advanced\/debug goal commands/);
-	assert.doesNotMatch(readme.match(/```text\n([\s\S]*?)```/)?.[1] ?? "", /debug|max-turns|complete|history/);
+	assert.doesNotMatch(readme.match(/```text\n([\s\S]*?)```/)?.[1] ?? "", /budget|debug|max-turns|complete|history/);
+	assert.doesNotMatch(source, /--budget/);
+});
+
+test("bare goal status uses persistent Codex-like summary messages", () => {
+	assert.match(source, /GOAL_SUMMARY_MESSAGE/);
+	assert.match(source, /Usage: \/goal <objective>\\nNo goal is currently set\./);
+	assert.match(source, /pi\.sendMessage\(\{\n\s+customType: GOAL_SUMMARY_MESSAGE/);
+	assert.match(source, /candidate\.customType === GOAL_TOOL_RENDER_MESSAGE \|\| candidate\.customType === GOAL_SUMMARY_MESSAGE/);
 });
 
 test("extension tolerates older SQLite store objects through compatibility helpers", () => {

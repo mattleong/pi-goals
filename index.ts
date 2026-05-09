@@ -14,6 +14,7 @@ import { createGoalStore } from "./goal-store.mjs";
 
 const EXTENSION_ID = "pi-goal";
 const GOAL_TOOL_RENDER_MESSAGE = `${EXTENSION_ID}:tool-render`;
+const GOAL_SUMMARY_MESSAGE = `${EXTENSION_ID}:summary`;
 const MAX_OBJECTIVE_CHARS = core.MAX_OBJECTIVE_CHARS;
 const DEFAULT_MAX_AUTONOMOUS_TURNS = core.readDefaultMaxAutonomousTurns();
 const CONTINUATION_STALE_MS = 2 * 60 * 1000;
@@ -671,21 +672,6 @@ export default async function goalExtension(pi: ExtensionAPI) {
 			: undefined;
 	}
 
-	function valueContainsText(value: unknown): boolean {
-		if (typeof value === "string") return value.trim().length > 0;
-		if (Array.isArray(value)) return value.some(valueContainsText);
-		if (value && typeof value === "object") {
-			const record = value as Record<string, unknown>;
-			return valueContainsText(record.text) || valueContainsText(record.content) || valueContainsText(record.message);
-		}
-		return false;
-	}
-
-	function assistantMessageHasText(message: unknown): boolean {
-		const record = message as { role?: string; content?: unknown; text?: unknown } | undefined;
-		return record?.role === "assistant" && (valueContainsText(record.content) || valueContainsText(record.text));
-	}
-
 	function reportBudgetLimited(ctx: ExtensionContext): boolean {
 		if (!goal || goal.status !== "budget_limited") return false;
 		ctx.ui.notify(
@@ -821,8 +807,25 @@ export default async function goalExtension(pi: ExtensionAPI) {
 		}
 	}
 
+	function goalSummaryText(g: ThreadGoal): string {
+		const lines = [
+			"Goal",
+			`Status: ${goalStatusLabel(g.status)}`,
+			`Objective: ${g.objective}`,
+			`Time used: ${formatDuration(g.timeUsedMs)}`,
+			`Tokens used: ${formatTokensCompact(g.tokensUsed)}`,
+		];
+		if (g.tokenBudget !== null) lines.push(`Token budget: ${formatTokensCompact(g.tokenBudget)}`);
+		lines.push("", commandHint(g));
+		return lines.join("\n");
+	}
+
 	function showGoal(ctx: ExtensionContext) {
-		showGoalToolRender(ctx, { toolName: "get_goal", args: {}, result: goalToToolPayload(goal, ctx, { includeCompletionBudgetReport: false }) });
+		pi.sendMessage({
+			customType: GOAL_SUMMARY_MESSAGE,
+			content: goal ? goalSummaryText(goal) : "Usage: /goal <objective>\nNo goal is currently set.",
+			display: true,
+		});
 		updateStatus(ctx);
 	}
 
@@ -996,22 +999,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 	}
 
 	function parseSetArgs(input: string): { objective: string; tokenBudget?: number | null; maxAutonomousTurns?: number | null } {
-		let objective = input.trim();
-		let tokenBudget: number | null | undefined;
-		let maxAutonomousTurns: number | null | undefined;
-
-		objective = objective.replace(/(?:^|\s)--budget(?:=|\s+)(\S+)/gi, (_match, value: string) => {
-			tokenBudget = parseFlagValue(value, "budget", true);
-			return " ";
-		});
-		objective = objective.replace(/(?:^|\s)--max-turns(?:=|\s+)(\S+)/gi, (_match, value: string) => {
-			maxAutonomousTurns = parseFlagValue(value, "max-turns");
-			return " ";
-		});
-		if (/(?:^|\s)--budget(?:\s*$|=)/i.test(objective)) parseFlagValue("", "budget", true);
-		if (/(?:^|\s)--max-turns(?:\s*$|=)/i.test(objective)) parseFlagValue("", "max-turns");
-
-		return { objective: objective.trim(), tokenBudget, maxAutonomousTurns };
+		return { objective: input.trim() };
 	}
 
 	async function chooseReplaceGoal(ctx: ExtensionCommandContext, objective: string): Promise<boolean> {
@@ -1037,8 +1025,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		const sameNonTerminalGoal = goal && goal.objective === parsed.objective && goal.status !== "complete";
-		if (goal && !sameNonTerminalGoal) {
+		if (goal) {
 			const ok = await chooseReplaceGoal(ctx, parsed.objective);
 			if (!ok) return;
 		}
@@ -1185,18 +1172,13 @@ export default async function goalExtension(pi: ExtensionAPI) {
 			autoContinuationSuppressed = false;
 		}
 	});
-	pi.on("agent_end", async (event, ctx) => {
-		const branchProgress =
-			continuationRunning &&
-			continuationStartEntryCount !== null &&
-			nonGoalBranchEntryCount(ctx) > continuationStartEntryCount;
-		const assistantProgress = continuationRunning && event.messages.some(assistantMessageHasText);
-		const madeProgress = continuationHadActivity || branchProgress || assistantProgress;
+	pi.on("agent_end", async (_event, ctx) => {
+		const madeProgress = continuationHadActivity;
 		if (continuationRunning && !madeProgress && goal?.status === "active") {
 			autoContinuationSuppressed = true;
 			persist(
 				"continuation_finished",
-				"Automatic continuation suppressed because the previous continuation made no tool-, message-, or branch-observable autonomous progress.",
+				"Automatic continuation suppressed because the previous continuation made no tool-observable autonomous progress.",
 			);
 		} else if (continuationRunning) {
 			persist("continuation_finished", continuationId ? `Continuation ${continuationId} finished.` : "Continuation finished.");
@@ -1213,9 +1195,14 @@ export default async function goalExtension(pi: ExtensionAPI) {
 	pi.on("context", async (event) => ({
 		messages: event.messages.filter((message) => {
 			const candidate = message as { role?: string; customType?: string };
-			return !(candidate.role === "custom" && candidate.customType === GOAL_TOOL_RENDER_MESSAGE);
+			return !(
+				candidate.role === "custom" &&
+				(candidate.customType === GOAL_TOOL_RENDER_MESSAGE || candidate.customType === GOAL_SUMMARY_MESSAGE)
+			);
 		}),
 	}));
+	pi.registerMessageRenderer<Record<string, never>>(GOAL_SUMMARY_MESSAGE, (message) => new Text(String(message.content ?? ""), 0, 0));
+
 	pi.registerMessageRenderer<GoalToolRenderDetails>(GOAL_TOOL_RENDER_MESSAGE, (message, _options, theme) => {
 		const details = message.details;
 		if (!details) return undefined;
@@ -1253,7 +1240,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 	pi.registerCommand("goal", {
 		description: "Set, view, pause, resume, or clear a persistent goal",
 		getArgumentCompletions: (prefix) => {
-			const options = ["help", "status", "pause", "resume", "clear", "budget ", "set ", "advanced"];
+			const options = ["help", "status", "pause", "resume", "clear", "advanced"];
 			const items = options
 				.filter((value) => value.startsWith(prefix))
 				.map((value) => ({ value, label: value.trim(), description: "goal command" }));
@@ -1270,10 +1257,9 @@ export default async function goalExtension(pi: ExtensionAPI) {
 					ctx.ui.notify(
 						[
 							"Usage:",
-							"/goal <objective> [--budget N]",
+							"/goal <objective>",
 							"/goal status",
 							"/goal pause | resume | clear",
-							"/goal budget <tokens|none>",
 							"/goal advanced",
 						].join("\n"),
 						"info",
@@ -1285,6 +1271,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 						[
 							"Advanced/debug goal commands:",
 							"/goal complete",
+							"/goal budget <tokens|none>",
 							"/goal max-turns <n|none>",
 							"/goal history [n]",
 							"/goal debug",

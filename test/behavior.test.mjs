@@ -42,10 +42,10 @@ function runPiGoal(root, command) {
 	);
 }
 
-test("slash-command E2E: /goal creates SQLite goal/checkpoints without consuming an auto-turn before dispatch", { timeout: 120_000 }, () => {
+test("slash-command E2E: /goal creates SQLite goal/checkpoints and /goal budget sets the token budget", { timeout: 120_000 }, () => {
 	const root = tempDir();
 	try {
-		const result = runPiGoal(root, "/goal Behavioral parity --budget 123");
+		const result = runPiGoal(root, ["/goal Behavioral parity", "/goal budget 123"]);
 		assert.equal(result.status, 0, result.stderr || result.stdout);
 
 		const db = new DatabaseSync(path.join(root, "sessions", "pi-goal.sqlite"));
@@ -76,7 +76,7 @@ test("slash-command E2E: /goal creates SQLite goal/checkpoints without consuming
 test("slash-command E2E: objectives can start with command words", { timeout: 120_000 }, () => {
 	const root = tempDir();
 	try {
-		const result = runPiGoal(root, "/goal Complete the docs --budget 12");
+		const result = runPiGoal(root, "/goal Complete the docs");
 		assert.equal(result.status, 0, result.stderr || result.stdout);
 
 		const db = new DatabaseSync(path.join(root, "sessions", "pi-goal.sqlite"));
@@ -84,7 +84,7 @@ test("slash-command E2E: objectives can start with command words", { timeout: 12
 			const rows = db.prepare("SELECT * FROM thread_goals").all();
 			assert.equal(rows.length, 1);
 			assert.equal(rows[0].objective, "Complete the docs");
-			assert.equal(rows[0].token_budget, 12);
+			assert.equal(rows[0].token_budget, null);
 		} finally {
 			db.close();
 		}
@@ -93,10 +93,30 @@ test("slash-command E2E: objectives can start with command words", { timeout: 12
 	}
 });
 
-test("slash-command E2E: same objective updates without replacement prompt", { timeout: 120_000 }, () => {
+test("slash-command E2E: budget-looking flags remain literal objective text", { timeout: 120_000 }, () => {
 	const root = tempDir();
 	try {
-		const result = runPiGoal(root, ["/goal Same objective --budget 10", "/goal Same objective --budget 20"]);
+		const result = runPiGoal(root, "/goal Task --budget 123");
+		assert.equal(result.status, 0, result.stderr || result.stdout);
+
+		const db = new DatabaseSync(path.join(root, "sessions", "pi-goal.sqlite"));
+		try {
+			const rows = db.prepare("SELECT * FROM thread_goals").all();
+			assert.equal(rows.length, 1);
+			assert.equal(rows[0].objective, "Task --budget 123");
+			assert.equal(rows[0].token_budget, null);
+		} finally {
+			db.close();
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("slash-command E2E: same objective is not silently updated without replacement confirmation", { timeout: 120_000 }, () => {
+	const root = tempDir();
+	try {
+		const result = runPiGoal(root, ["/goal Same objective", "/goal Same objective"]);
 		assert.equal(result.status, 0, result.stderr || result.stdout);
 
 		const db = new DatabaseSync(path.join(root, "sessions", "pi-goal.sqlite"));
@@ -104,9 +124,8 @@ test("slash-command E2E: same objective updates without replacement prompt", { t
 			const rows = db.prepare("SELECT * FROM thread_goals").all();
 			assert.equal(rows.length, 1);
 			assert.equal(rows[0].objective, "Same objective");
-			assert.equal(rows[0].token_budget, 20);
 			const notes = db.prepare("SELECT note FROM pi_goal_events ORDER BY id ASC").all().map((row) => row.note);
-			assert.ok(notes.includes("Updated existing non-terminal goal with the same objective."));
+			assert.ok(!notes.includes("Updated existing non-terminal goal with the same objective."));
 		} finally {
 			db.close();
 		}
@@ -138,15 +157,18 @@ test("slash-command E2E: completed goals cannot be resumed", { timeout: 120_000 
 	}
 });
 
-test("slash-command E2E: invalid budget flags are rejected", { timeout: 120_000 }, () => {
+test("slash-command E2E: invalid budget subcommand values are rejected", { timeout: 120_000 }, () => {
 	const root = tempDir();
 	try {
-		const result = runPiGoal(root, "/goal Bad budget --budget nope");
+		const result = runPiGoal(root, ["/goal Bad budget", "/goal budget nope"]);
 		assert.equal(result.status, 0, result.stderr || result.stdout);
 
 		const db = new DatabaseSync(path.join(root, "sessions", "pi-goal.sqlite"));
 		try {
-			assert.equal(db.prepare("SELECT COUNT(*) AS count FROM thread_goals").get().count, 0);
+			const rows = db.prepare("SELECT * FROM thread_goals").all();
+			assert.equal(rows.length, 1);
+			assert.equal(rows[0].objective, "Bad budget");
+			assert.equal(rows[0].token_budget, null);
 		} finally {
 			db.close();
 		}

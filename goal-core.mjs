@@ -70,9 +70,10 @@ export function escapeXmlText(input) {
 }
 
 export function objectiveError(objective) {
-	if (!String(objective).trim()) return "goal objective must not be empty";
-	if ([...String(objective)].length > MAX_OBJECTIVE_CHARS) {
-		return `goal objective must be at most ${MAX_OBJECTIVE_CHARS} characters`;
+	if (!String(objective).trim()) return "Goal objective must not be empty.";
+	const actualChars = [...String(objective)].length;
+	if (actualChars > MAX_OBJECTIVE_CHARS) {
+		return `Goal objective is too long: ${formatNumber(actualChars)} characters. Limit: ${formatNumber(MAX_OBJECTIVE_CHARS)} characters. Put longer instructions in a file and refer to that file in the goal, for example: /goal follow the instructions in docs/goal.md.`;
 	}
 	return undefined;
 }
