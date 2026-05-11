@@ -15,6 +15,7 @@ import { createGoalStore } from "./goal-store.mjs";
 const EXTENSION_ID = "pi-goal";
 const GOAL_TOOL_RENDER_MESSAGE = `${EXTENSION_ID}:tool-render`;
 const GOAL_SUMMARY_MESSAGE = `${EXTENSION_ID}:summary`;
+const GOAL_PRESENTATION_MESSAGES = [GOAL_TOOL_RENDER_MESSAGE, GOAL_SUMMARY_MESSAGE];
 const MAX_OBJECTIVE_CHARS = core.MAX_OBJECTIVE_CHARS;
 const DEFAULT_MAX_AUTONOMOUS_TURNS = core.readDefaultMaxAutonomousTurns();
 const CONTINUATION_STALE_MS = 2 * 60 * 1000;
@@ -591,7 +592,18 @@ export default async function goalExtension(pi: ExtensionAPI) {
 	}
 
 	function commandObjectiveError(objective: string): string | undefined {
-		return core.objectiveErrorWithFileExample(objective, "/goal follow the instructions in docs/goal.md");
+		const example = "/goal follow the instructions in docs/goal.md";
+		const helper = core.objectiveErrorWithFileExample;
+		if (typeof helper === "function") return helper(objective, example);
+		const err = objectiveError(objective);
+		return err ? `${err} For example: ${example}.` : undefined;
+	}
+
+	function isGoalPresentationMessage(message: unknown): boolean {
+		const helper = core.isGoalPresentationMessage;
+		if (typeof helper === "function") return helper(message, GOAL_PRESENTATION_MESSAGES);
+		const candidate = message as { role?: string; customType?: string };
+		return candidate.role === "custom" && GOAL_PRESENTATION_MESSAGES.includes(candidate.customType ?? "");
 	}
 
 	function positiveInteger(value: unknown, field: string, codexBudget = false): number | undefined {
@@ -1197,9 +1209,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 		return { systemPrompt };
 	});
 	pi.on("context", async (event) => ({
-		messages: event.messages.filter(
-			(message) => !core.isGoalPresentationMessage(message, [GOAL_TOOL_RENDER_MESSAGE, GOAL_SUMMARY_MESSAGE]),
-		),
+		messages: event.messages.filter((message) => !isGoalPresentationMessage(message)),
 	}));
 	pi.registerMessageRenderer<Record<string, never>>(GOAL_SUMMARY_MESSAGE, (message) => new Text(String(message.content ?? ""), 0, 0));
 
