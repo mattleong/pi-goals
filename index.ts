@@ -590,6 +590,10 @@ export default async function goalExtension(pi: ExtensionAPI) {
 		return core.objectiveError(objective);
 	}
 
+	function commandObjectiveError(objective: string): string | undefined {
+		return core.objectiveErrorWithFileExample(objective, "/goal follow the instructions in docs/goal.md");
+	}
+
 	function positiveInteger(value: unknown, field: string, codexBudget = false): number | undefined {
 		return core.positiveInteger(value, field, codexBudget);
 	}
@@ -1019,7 +1023,7 @@ export default async function goalExtension(pi: ExtensionAPI) {
 
 	async function setGoalFromCommand(args: string, ctx: ExtensionCommandContext) {
 		const parsed = parseSetArgs(args);
-		const err = objectiveError(parsed.objective);
+		const err = commandObjectiveError(parsed.objective);
 		if (err) {
 			ctx.ui.notify(err, "error");
 			return;
@@ -1193,13 +1197,9 @@ export default async function goalExtension(pi: ExtensionAPI) {
 		return { systemPrompt };
 	});
 	pi.on("context", async (event) => ({
-		messages: event.messages.filter((message) => {
-			const candidate = message as { role?: string; customType?: string };
-			return !(
-				candidate.role === "custom" &&
-				(candidate.customType === GOAL_TOOL_RENDER_MESSAGE || candidate.customType === GOAL_SUMMARY_MESSAGE)
-			);
-		}),
+		messages: event.messages.filter(
+			(message) => !core.isGoalPresentationMessage(message, [GOAL_TOOL_RENDER_MESSAGE, GOAL_SUMMARY_MESSAGE]),
+		),
 	}));
 	pi.registerMessageRenderer<Record<string, never>>(GOAL_SUMMARY_MESSAGE, (message) => new Text(String(message.content ?? ""), 0, 0));
 

@@ -73,9 +73,19 @@ export function objectiveError(objective) {
 	if (!String(objective).trim()) return "Goal objective must not be empty.";
 	const actualChars = [...String(objective)].length;
 	if (actualChars > MAX_OBJECTIVE_CHARS) {
-		return `Goal objective is too long: ${formatNumber(actualChars)} characters. Limit: ${formatNumber(MAX_OBJECTIVE_CHARS)} characters. Put longer instructions in a file and refer to that file in the goal, for example: /goal follow the instructions in docs/goal.md.`;
+		return `Goal objective is too long: ${formatNumber(actualChars)} characters. Limit: ${formatNumber(MAX_OBJECTIVE_CHARS)} characters. Put longer instructions in a file and refer to that file in the goal.`;
 	}
 	return undefined;
+}
+
+export function objectiveErrorWithFileExample(objective, example) {
+	const err = objectiveError(objective);
+	if (!err || !example) return err;
+	return `${err} For example: ${example}.`;
+}
+
+export function isGoalPresentationMessage(message, customTypes = []) {
+	return message?.role === "custom" && customTypes.includes(message.customType);
 }
 
 export function positiveInteger(value, field, codexBudget = false) {

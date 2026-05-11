@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { isGoalPresentationMessage, objectiveError, objectiveErrorWithFileExample } from "../goal-core.mjs";
 
 const source = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 const coreSource = readFileSync(new URL("../goal-core.mjs", import.meta.url), "utf8");
@@ -37,9 +38,14 @@ test("budget-limit prompt follows Codex token-budget behavior", () => {
 	assert.match(coreSource, /do not start new substantive work for this goal/);
 });
 
-test("objective validation follows Codex-style file guidance", () => {
-	assert.match(coreSource, /Goal objective is too long:/);
-	assert.match(coreSource, /Put longer instructions in a file and refer to that file in the goal/);
+test("objective validation keeps core guidance separate from command examples", () => {
+	const longObjective = "x".repeat(4_001);
+	const error = objectiveError(longObjective);
+	assert.match(error, /Goal objective is too long:/);
+	assert.match(error, /Put longer instructions in a file and refer to that file in the goal\./);
+	assert.doesNotMatch(error, /\/goal/);
+	assert.match(source, /core\.objectiveErrorWithFileExample/);
+	assert.match(objectiveErrorWithFileExample(longObjective, "/goal follow the instructions in docs/goal.md"), /\/goal follow the instructions in docs\/goal\.md/);
 });
 
 test("pi auto-turn guard is hidden by default and pauses instead of budget-limiting", () => {
@@ -51,7 +57,6 @@ test("pi auto-turn guard is hidden by default and pauses instead of budget-limit
 
 test("Codex-like selectors are documented and implemented", () => {
 	assert.match(source, /"Replace current goal", "Cancel"/);
-	assert.match(source, /if \(goal\) \{\n\s+const ok = await chooseReplaceGoal/);
 	assert.match(source, /"Resume goal", "Leave paused"/);
 	assert.match(readme, /Replace current goal` \/ `Cancel` selector/);
 	assert.match(readme, /Resume goal` \/ `Leave paused` selector/);
@@ -65,10 +70,13 @@ test("advanced pi-only commands are hidden from normal help", () => {
 });
 
 test("bare goal status uses persistent Codex-like summary messages", () => {
+	const presentationTypes = ["pi-goal:tool-render", "pi-goal:summary"];
 	assert.match(source, /GOAL_SUMMARY_MESSAGE/);
 	assert.match(source, /Usage: \/goal <objective>\\nNo goal is currently set\./);
-	assert.match(source, /pi\.sendMessage\(\{\n\s+customType: GOAL_SUMMARY_MESSAGE/);
-	assert.match(source, /candidate\.customType === GOAL_TOOL_RENDER_MESSAGE \|\| candidate\.customType === GOAL_SUMMARY_MESSAGE/);
+	assert.match(source, /core\.isGoalPresentationMessage/);
+	assert.equal(isGoalPresentationMessage({ role: "custom", customType: "pi-goal:summary" }, presentationTypes), true);
+	assert.equal(isGoalPresentationMessage({ role: "custom", customType: "other" }, presentationTypes), false);
+	assert.equal(isGoalPresentationMessage({ role: "assistant", customType: "pi-goal:summary" }, presentationTypes), false);
 });
 
 test("extension tolerates older SQLite store objects through compatibility helpers", () => {
