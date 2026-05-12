@@ -29,7 +29,7 @@
     "validate": "npm run check && npm run pack:dry"
   },
   "dependencies": {
-    "pi-code-previews": "^0.1.23"
+    "pi-code-previews": "^0.1.28"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
